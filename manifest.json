@@ -1,0 +1,9 @@
+{
+  "name": "Verde Gestionale",
+  "short_name": "Giardino",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f6f8f5",
+  "theme_color": "#2f6b3a",
+  "icons": [{ "src": "icon.png", "sizes": "512x512", "type": "image/png" }]
+}
