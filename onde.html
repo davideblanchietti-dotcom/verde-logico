@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2f6b3a">
+<link rel="manifest" href="manifest.json">
+<title>Verde Gestionale</title>
+<style>
+:root{--verde:#2f6b3a;--verde2:#e7f1e8;--testo:#1d2a1f;--grigio:#6b766d;--bordo:#d8e0d9;--rosso:#b3382c;--arancio:#b8741a;--sfondo:#f6f8f5}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,Roboto,sans-serif;background:var(--sfondo);color:var(--testo);padding-bottom:80px}
+header{position:sticky;top:0;z-index:5;background:var(--verde);color:#fff;padding:14px 16px;display:flex;align-items:center;justify-content:space-between}
+header h1{font-size:18px;margin:0}
+header button{background:none;border:0;color:#fff;font-size:22px}
+header .dx{display:flex;align-items:center}
+.stato{font-size:11px;opacity:.9;margin-right:6px}
+body.fuori nav,body.fuori #fab,body.fuori header .dx{display:none}
+main{padding:12px}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:#fff;border-top:1px solid var(--bordo);padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;border:0;background:none;padding:10px 0 8px;font-size:12px;color:var(--grigio)}
+nav button span{display:block;font-size:20px}
+nav button.on{color:var(--verde);font-weight:600}
+.card{background:#fff;border:1px solid var(--bordo);border-radius:12px;padding:12px;margin-bottom:10px}
+.riga{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.sub{color:var(--grigio);font-size:13px}
+.badge{display:inline-block;font-size:11px;padding:2px 8px;border-radius:10px;background:var(--verde2);color:var(--verde);margin:2px 4px 2px 0}
+.badge.rosso{background:#f8e3e1;color:var(--rosso)}
+.badge.arancio{background:#f8ecd9;color:var(--arancio)}
+.btn{background:var(--verde);color:#fff;border:0;border-radius:10px;padding:10px 14px;font-size:15px;text-decoration:none;display:inline-block}
+.btn.sec{background:var(--verde2);color:var(--verde)}
+.btn.rosso{background:var(--rosso);color:#fff}
+.btn.pic{padding:6px 10px;font-size:13px}
+.fab{position:fixed;right:16px;bottom:84px;width:56px;height:56px;border-radius:50%;font-size:28px;padding:0;box-shadow:0 3px 10px rgba(0,0,0,.25)}
+.filtri{display:flex;gap:6px;overflow-x:auto;margin-bottom:10px}
+.filtri button{border:1px solid var(--bordo);background:#fff;border-radius:16px;padding:6px 12px;white-space:nowrap}
+.filtri button.on{background:var(--verde);color:#fff;border-color:var(--verde)}
+input,select,textarea{width:100%;padding:10px;border:1px solid var(--bordo);border-radius:8px;font-size:16px;background:#fff;font-family:inherit}
+label{display:block;font-size:13px;color:var(--grigio);margin:10px 0 4px}
+.griglia{display:grid;grid-template-columns:1fr 1fr;gap:0 8px}
+#modale{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;z-index:10;align-items:flex-end}
+#modale.aperto{display:flex}
+.foglio{background:#fff;width:100%;max-height:92vh;overflow-y:auto;border-radius:16px 16px 0 0;padding:16px 16px 28px}
+.calcolo{background:var(--verde2);border-radius:10px;padding:10px;margin-top:12px;font-size:14px}
+.calcolo .riga{padding:2px 0}
+.tot{font-weight:700;border-top:1px solid var(--bordo);margin-top:4px;padding-top:4px}
+.mat{display:grid;grid-template-columns:1fr 70px 36px;gap:6px;margin-bottom:6px}
+.vuoto{text-align:center;color:var(--grigio);padding:30px 10px}
+h2{font-size:16px;margin:16px 0 8px}
+.neg{color:var(--rosso)}
+.azioni{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
+</style>
+</head>
+<body class="fuori">
+<header><h1 id="titolo">Verde Gestionale</h1><div class="dx"><span class="stato" id="stato"></span><button onclick="apriImpostazioni()">⚙️</button></div></header>
+<main id="main"><div class="vuoto">Caricamento…</div></main>
+<button class="btn fab" id="fab" onclick="nuovo()">+</button>
+<nav>
+<button data-v="agenda" class="on" onclick="vai('agenda')"><span>📅</span>Agenda</button>
+<button data-v="clienti" onclick="vai('clienti')"><span>👥</span>Clienti</button>
+<button data-v="magazzino" onclick="vai('magazzino')"><span>📦</span>Magazzino</button>
+<button data-v="conti" onclick="vai('conti')"><span>📊</span>Conti</button>
+</nav>
+<div id="modale" onclick="if(event.target===this)chiudi()"><div class="foglio" id="foglio"></div></div>
+
+<script>
+const KEY='verdeGestionale.v1';
+const IMP_DEF={azienda:'',costoKm:0.35,costoOra:0,tariffa:30,iva:22,margine:30};
+const vuoti=()=>({clienti:[],interventi:[],materiali:[],imp:{...IMP_DEF}});
+let D=vuoti(),utente=null,stop=[],meta={},errVisto=false;
+const nuovoId=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+const num=v=>parseFloat(String(v??'').replace(',','.'))||0;
+const eur=n=>num(n).toLocaleString('it-IT',{style:'currency',currency:'EUR'});
+const fmtN=n=>(Math.round(num(n)*100)/100).toLocaleString('it-IT');
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const oggi=()=>{const d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,10)};
+const addGiorni=(s,n)=>{const d=new Date(s+'T12:00');d.setDate(d.getDate()+n);return d.toISOString().slice(0,10)};
+const fmtData=d=>d?new Date(d+'T12:00').toLocaleDateString('it-IT',{weekday:'short',day:'numeric',month:'short'}):'Senza data';
+const cliente=cid=>D.clienti.find(c=>c.id===cid)||{nome:'(cliente eliminato)',km:0};
+const materiale=mid=>D.materiali.find(m=>m.id===mid);
+const TIPI=['Taglio prato','Potatura','Siepi','Trattamento','Concimazione','Semina / tappeto erboso','Impianto irrigazione','Pulizia foglie','Manutenzione','Altro'];
+
+/* ---------- CLOUD ---------- */
+const ref=(c,i)=>FB.doc(FB.db,c,i);
+const pulisci=o=>{const {id,...x}=o;return JSON.parse(JSON.stringify(x))};
+function err(e){console.error(e);if(errVisto)return;errVisto=true;setTimeout(()=>errVisto=false,5000);
+ alert(e&&e.code==='permission-denied'?'Accesso negato: questa email non è autorizzata nelle regole di Firestore.':'Errore: '+(e&&(e.code||e.message)))}
+function scrivi(c,o){FB.setDoc(ref(c,o.id),pulisci(o)).catch(err)}
+function cancella(c,i){FB.deleteDoc(ref(c,i)).catch(err)}
+function avvia(){
+ FB.onAuthStateChanged(FB.auth,u=>{
+  utente=u;
+  if(u){document.body.classList.remove('fuori');ascolta();render()}
+  else{stacca();D=vuoti();document.body.classList.add('fuori');mostraLogin()}
+ });
+}
+function ascolta(){
+ stacca();
+ ['clienti','interventi','materiali'].forEach(n=>stop.push(FB.onSnapshot(FB.collection(FB.db,n),{includeMetadataChanges:true},s=>{D[n]=s.docs.map(d=>({...d.data(),id:d.id}));meta[n]=s.metadata;aggiornaUI()},err)));
+ stop.push(FB.onSnapshot(ref('config','impostazioni'),{includeMetadataChanges:true},s=>{D.imp={...IMP_DEF,...(s.data()||{})};meta.imp=s.metadata;aggiornaUI()},err));
+}
+function stacca(){stop.forEach(f=>f());stop=[];meta={}}
+function aggiornaUI(){
+ const m=Object.values(meta);
+ document.getElementById('stato').textContent=m.some(x=>x.hasPendingWrites)?'⏳ da inviare':m.some(x=>x.fromCache)?'📴 offline':'✓ sincronizzato';
+ render();
+}
+function mostraLogin(){
+ document.getElementById('titolo').textContent='Verde Gestionale';
+ document.getElementById('main').innerHTML=`<div class="card" style="margin-top:30px"><h2 style="margin-top:0">Accedi</h2>
+ <label>Email</label><input id="lEmail" type="email" autocomplete="username">
+ <label>Password</label><input id="lPass" type="password" autocomplete="current-password">
+ <div class="azioni"><button class="btn" onclick="accedi()">Entra</button></div><div class="sub neg" id="lErr" style="margin-top:8px"></div></div>`;
+}
+async function accedi(){
+ try{await FB.signInWithEmailAndPassword(FB.auth,document.getElementById('lEmail').value.trim(),document.getElementById('lPass').value)}
+ catch(e){document.getElementById('lErr').textContent='Accesso non riuscito: controlla email, password e connessione.'}
+}
+
+/* ---------- CALCOLI ---------- */
+function calcola(i){
+ const costoMat=(i.materiali||[]).reduce((s,r)=>s+num(r.qta)*num(r.costo),0);
+ const trasf=num(i.km)*num(D.imp.costoKm)+num(i.extraTrasf);
+ const manod=num(i.ore)*num(D.imp.costoOra);
+ const costi=costoMat+trasf+manod;
+ const imponibile=num(i.prezzo);
+ const iva=imponibile*num(i.iva)/100;
+ const margine=imponibile-costi;
+ return {costoMat,trasf,manod,costi,imponibile,iva,totale:imponibile+iva,margine,margPerc:imponibile?margine/imponibile*100:0};
+}
+function registra(n,v){
+ const delta={};
+ const mov=(i,s)=>(i.materiali||[]).forEach(r=>{if(materiale(r.id))delta[r.id]=(delta[r.id]||0)+s*num(r.qta)});
+ if(v&&v.scaricato)mov(v,1);
+ n.scaricato=n.stato==='completato';
+ if(n.scaricato)mov(n,-1);
+ Object.entries(delta).forEach(([mid,d])=>{if(d)FB.setDoc(ref('materiali',mid),{qta:FB.increment(d)},{merge:true}).catch(err)});
+ if(n.stato==='completato'&&num(n.ripeti)>0&&!n.prossimo){
+  n.prossimo=true;
+  scrivi('interventi',{...JSON.parse(JSON.stringify(n)),id:nuovoId(),data:addGiorni(n.data||oggi(),num(n.ripeti)),stato:'programmato',pagato:false,dataPag:'',scaricato:false,prossimo:false});
+ }
+ scrivi('interventi',n);
+}
+
+/* ---------- NAVIGAZIONE ---------- */
+let vista='agenda',filtro='prossimi',cerca='',mese=oggi().slice(0,7),bozza=null,cBozza=null,mBozza=null;
+function vai(v){vista=v;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));render()}
+function render(){
+ if(!utente)return;
+ document.getElementById('titolo').textContent={agenda:'Agenda',clienti:'Clienti',magazzino:'Magazzino',conti:'Conti'}[vista];
+ document.getElementById('fab').style.display=vista==='conti'?'none':'block';
+ const lc=document.getElementById('listaC');
+ if(vista==='clienti'&&lc){lc.innerHTML=listaClienti();return}
+ document.getElementById('main').innerHTML={agenda:vAgenda,clienti:vClienti,magazzino:vMagazzino,conti:vConti}[vista]();
+}
+function nuovo(){if(vista==='agenda')formIntervento();else if(vista==='clienti')formCliente();else formMateriale()}
+function apri(h){document.getElementById('foglio').innerHTML=h;document.getElementById('modale').classList.add('aperto');document.getElementById('foglio').scrollTop=0}
+function chiudi(){document.getElementById('modale').classList.remove('aperto')}
+
+/* ---------- AGENDA ---------- */
+function vAgenda(){
+ const f=[['prossimi','Da fare'],['preventivi','Preventivi'],['incassare','Da incassare'],['fatti','Completati'],['tutti','Tutti']];
+ const sel={prossimi:i=>i.stato==='programmato',preventivi:i=>i.stato==='preventivo',incassare:i=>i.stato==='completato'&&!i.pagato,fatti:i=>i.stato==='completato',tutti:()=>true}[filtro];
+ let L=D.interventi.filter(sel).sort((a,b)=>((a.data||'')+(a.ora||'')).localeCompare((b.data||'')+(b.ora||'')));
+ if(filtro==='fatti'||filtro==='tutti')L.reverse();
+ let h='<div class="filtri">'+f.map(([k,n])=>`<button class="${k===filtro?'on':''}" onclick="filtro='${k}';render()">${n}</button>`).join('')+'</div>';
+ const scarsi=D.materiali.filter(m=>num(m.soglia)>0&&num(m.qta)<=num(m.soglia));
+ if(scarsi.length&&filtro==='prossimi')h+=`<div class="card"><span class="badge arancio">Scorte basse</span> ${scarsi.map(m=>esc(m.nome)).join(', ')}</div>`;
+ if(!L.length)return h+'<div class="vuoto">Nessun intervento qui.<br>Tocca + per aggiungerne uno.</div>';
+ return h+L.map(cardIntervento).join('');
+}
+function cardIntervento(i){
+ const c=cliente(i.clienteId),k=calcola(i);
+ let b='';
+ if(i.stato==='preventivo')b+='<span class="badge arancio">Preventivo</span>';
+ if(i.stato==='programmato'&&i.data&&i.data<oggi())b+='<span class="badge rosso">In ritardo</span>';
+ if(i.stato==='completato')b+=i.pagato?'<span class="badge">Incassato</span>':'<span class="badge rosso">Da incassare</span>';
+ if(num(i.ripeti)>0)b+=`<span class="badge">ogni ${num(i.ripeti)} gg</span>`;
+ let az='';
+ if(i.stato==='preventivo')az=`<button class="btn sec pic" onclick="event.stopPropagation();cambiaStato('${i.id}','programmato')">Accettato</button>`;
+ else if(i.stato==='programmato')az=`<button class="btn sec pic" onclick="event.stopPropagation();cambiaStato('${i.id}','completato')">✓ Fatto</button>`;
+ else if(!i.pagato)az=`<button class="btn sec pic" onclick="event.stopPropagation();incassa('${i.id}')">€ Incassato</button>`;
+ return `<div class="card" onclick="formIntervento('${i.id}')">
+ <div class="riga"><b>${esc(c.nome)}</b><span>${eur(k.totale)}</span></div>
+ <div class="riga sub"><span>${fmtData(i.data)} ${esc(i.ora||'')} · ${esc(i.tipo)}</span><span class="${k.margine<0?'neg':''}">marg. ${eur(k.margine)}</span></div>
+ <div class="riga" style="margin-top:6px"><div>${b}</div>${az}</div></div>`;
+}
+function cambiaStato(iid,s){const v=D.interventi.find(x=>x.id===iid);const n=JSON.parse(JSON.stringify(v));n.stato=s;registra(n,v)}
+function incassa(iid){const i=D.interventi.find(x=>x.id===iid);scrivi('interventi',{...i,pagato:true,dataPag:oggi()})}
+
+function formIntervento(iid,cid){
+ if(!D.clienti.length){alert('Aggiungi prima almeno un cliente.');chiudi();vai('clienti');return}
+ const v=iid?D.interventi.find(x=>x.id===iid):null;
+ const ord=D.clienti.slice().sort((a,b)=>a.nome.localeCompare(b.nome));
+ const c0=cid?cliente(cid):ord[0];
+ bozza=v?JSON.parse(JSON.stringify(v)):{id:nuovoId(),clienteId:c0.id,data:oggi(),ora:'',tipo:'Taglio prato',descr:'',ore:1,prezzo:'',iva:D.imp.iva,km:num(c0.km)*2,extraTrasf:0,materiali:[],stato:'programmato',pagato:false,dataPag:'',ripeti:0};
+ const b=bozza,opt=(arr,val)=>arr.map(([x,t])=>`<option value="${esc(x)}" ${String(x)===String(val)?'selected':''}>${esc(t)}</option>`).join('');
+ apri(`<h2>${v?'Modifica':'Nuovo'} intervento</h2>
+ <label>Cliente</label><select onchange="bozza.clienteId=this.value;cambiaCliente()">${opt(ord.map(c=>[c.id,c.nome]),b.clienteId)}</select>
+ <div class="griglia"><div><label>Data</label><input type="date" value="${b.data||''}" onchange="b_set('data',this.value)"></div><div><label>Ora</label><input type="time" value="${b.ora||''}" onchange="b_set('ora',this.value)"></div></div>
+ <label>Tipo di lavoro</label><input list="tipi" value="${esc(b.tipo)}" oninput="b_set('tipo',this.value)"><datalist id="tipi">${TIPI.map(t=>`<option value="${t}">`).join('')}</datalist>
+ <label>Descrizione / note</label><textarea rows="2" oninput="b_set('descr',this.value)">${esc(b.descr)}</textarea>
+ <div class="griglia"><div><label>Stato</label><select onchange="b_set('stato',this.value)">${opt([['preventivo','Preventivo'],['programmato','Programmato'],['completato','Completato']],b.stato)}</select></div>
+ <div><label>Ripeti ogni (gg, 0=no)</label><input type="number" inputmode="numeric" value="${b.ripeti}" oninput="b_set('ripeti',this.value)"></div></div>
+ <h2>Materiali usati</h2><div id="righeMat"></div>
+ <button class="btn sec pic" onclick="aggMat()">+ Aggiungi materiale</button>
+ <div class="sub" style="margin-top:4px">Vengono scalati dal magazzino quando l'intervento è completato.</div>
+ <h2>Trasferta e ore</h2>
+ <div class="griglia"><div><label>Km totali (A/R)</label><input id="fKm" type="number" inputmode="decimal" value="${b.km}" oninput="b_set('km',this.value)"></div>
+ <div><label>Pedaggi/parcheggi €</label><input type="number" inputmode="decimal" value="${b.extraTrasf}" oninput="b_set('extraTrasf',this.value)"></div>
+ <div><label>Ore di lavoro</label><input type="number" inputmode="decimal" value="${b.ore}" oninput="b_set('ore',this.value)"></div>
+ <div><label>Aliquota IVA</label><select onchange="b_set('iva',this.value)">${opt([['22','22%'],['10','10%'],['4','4%'],['0','0% (forfettario/esente)']],b.iva)}</select></div></div>
+ <h2>Prezzo</h2>
+ <label>Prezzo al cliente, IVA esclusa (€)</label><input id="fPrezzo" type="number" inputmode="decimal" value="${b.prezzo}" oninput="b_set('prezzo',this.value)">
+ <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap"><button class="btn sec pic" onclick="suggerisci('tariffa')">Con tariffa oraria</button><button class="btn sec pic" onclick="suggerisci('margine')">Per margine ${num(D.imp.margine)}%</button></div>
+ <div class="calcolo" id="calc"></div>
+ <label style="display:flex;gap:8px;align-items:center;color:var(--testo);font-size:15px;margin-top:12px"><input type="checkbox" style="width:auto" ${b.pagato?'checked':''} onchange="bozza.pagato=this.checked;if(this.checked&&!bozza.dataPag)bozza.dataPag=oggi()"> Pagamento incassato</label>
+ <div class="azioni"><button class="btn" onclick="salvaIntervento()">Salva</button><button class="btn sec" onclick="chiudi()">Annulla</button><button class="btn sec" onclick="condividi()">📤 Invia</button>${v?'<button class="btn rosso" onclick="eliminaIntervento()">Elimina</button>':''}</div>`);
+ disegnaMat();aggiornaCalc();
+}
+function b_set(k,v){bozza[k]=v;aggiornaCalc()}
+function cambiaCliente(){bozza.km=num(cliente(bozza.clienteId).km)*2;document.getElementById('fKm').value=bozza.km;aggiornaCalc()}
+function disegnaMat(){
+ const el=document.getElementById('righeMat');
+ if(!D.materiali.length&&!bozza.materiali.length){el.innerHTML='<div class="sub">Magazzino vuoto: aggiungi i materiali dalla scheda Magazzino.</div>';return}
+ el.innerHTML=bozza.materiali.map((r,k)=>`<div class="mat"><select onchange="setMat(${k},this.value)">${D.materiali.map(m=>`<option value="${m.id}" ${m.id===r.id?'selected':''}>${esc(m.nome)} (${eur(m.costo)}/${esc(m.unita)})</option>`).join('')}${materiale(r.id)?'':`<option selected>${esc(r.nome)}</option>`}</select><input type="number" inputmode="decimal" value="${r.qta}" oninput="bozza.materiali[${k}].qta=this.value;aggiornaCalc()"><button class="btn rosso pic" onclick="bozza.materiali.splice(${k},1);disegnaMat();aggiornaCalc()">✕</button></div>`).join('');
+}
+function aggMat(){if(!D.materiali.length){alert('Aggiungi prima i materiali nel Magazzino.');return}const m=D.materiali[0];bozza.materiali.push({id:m.id,nome:m.nome,costo:m.costo,qta:1});disegnaMat();aggiornaCalc()}
+function setMat(k,mid){const m=materiale(mid);if(m)Object.assign(bozza.materiali[k],{id:m.id,nome:m.nome,costo:m.costo});aggiornaCalc()}
+function aggiornaCalc(){
+ const el=document.getElementById('calc');if(!el)return;
+ const k=calcola(bozza),r=(t,v,cl='')=>`<div class="riga ${cl}"><span>${t}</span><span>${v}</span></div>`;
+ el.innerHTML=r('Materiali',eur(k.costoMat))+r('Trasferta',eur(k.trasf))+(k.manod?r('Manodopera (costo interno)',eur(k.manod)):'')+r('Totale costi',eur(k.costi),'tot')
+ +r('Imponibile',eur(k.imponibile))+r(`IVA ${num(bozza.iva)}%`,eur(k.iva))+r('Totale al cliente',eur(k.totale),'tot')
+ +r('Margine netto',`${eur(k.margine)} (${k.margPerc.toFixed(1)}%)`,'tot'+(k.margine<0?' neg':''));
+}
+function suggerisci(modo){
+ const k=calcola({...bozza,prezzo:0});
+ if(modo==='margine'&&num(D.imp.margine)>=100){alert('Il margine deve essere sotto il 100%');return}
+ let p=modo==='tariffa'?num(bozza.ore)*num(D.imp.tariffa)+k.costoMat+k.trasf:k.costi/(1-num(D.imp.margine)/100);
+ if(!p){alert('Inserisci prima ore, materiali o km.');return}
+ p=Math.ceil(p);bozza.prezzo=p;document.getElementById('fPrezzo').value=p;aggiornaCalc();
+}
+function salvaIntervento(){
+ const v=D.interventi.find(x=>x.id===bozza.id);
+ const n=JSON.parse(JSON.stringify(bozza));if(!n.pagato)n.dataPag='';
+ registra(n,v);chiudi();
+}
+function eliminaIntervento(){
+ if(!confirm('Eliminare questo intervento?'))return;
+ const v=D.interventi.find(x=>x.id===bozza.id);
+ if(v&&v.scaricato)(v.materiali||[]).forEach(r=>{if(materiale(r.id))FB.setDoc(ref('materiali',r.id),{qta:FB.increment(num(r.qta))},{merge:true}).catch(err)});
+ cancella('interventi',bozza.id);chiudi();
+}
+function condividi(){
+ const c=cliente(bozza.clienteId),k=calcola(bozza);
+ const t=`${D.imp.azienda||'Preventivo lavori di giardinaggio'}\nCliente: ${c.nome}\nLavoro: ${bozza.tipo}${bozza.descr?' – '+bozza.descr:''}\n${bozza.data?'Data: '+fmtData(bozza.data)+'\n':''}Imponibile: ${eur(k.imponibile)}\nIVA ${num(bozza.iva)}%: ${eur(k.iva)}\nTotale: ${eur(k.totale)}`;
+ if(navigator.share)navigator.share({text:t}).catch(()=>{});else if(navigator.clipboard){navigator.clipboard.writeText(t);alert('Testo copiato')}
+}
+
+/* ---------- CLIENTI ---------- */
+function vClienti(){return `<input placeholder="Cerca cliente…" value="${esc(cerca)}" oninput="cerca=this.value;document.getElementById('listaC').innerHTML=listaClienti()" style="margin-bottom:10px"><div id="listaC">${listaClienti()}</div>`}
+function listaClienti(){
+ const q=cerca.toLowerCase();
+ const L=D.clienti.filter(c=>(c.nome+' '+(c.indirizzo||'')).toLowerCase().includes(q)).sort((a,b)=>a.nome.localeCompare(b.nome));
+ if(!L.length)return '<div class="vuoto">Nessun cliente. Tocca + per aggiungerne uno.</div>';
+ return L.map(c=>{const n=D.interventi.filter(i=>i.clienteId===c.id);const da=n.filter(i=>i.stato==='completato'&&!i.pagato).reduce((s,i)=>s+calcola(i).totale,0);
+ return `<div class="card" onclick="formCliente('${c.id}')"><div class="riga"><b>${esc(c.nome)}</b>${da?`<span class="badge rosso">${eur(da)} da incassare</span>`:''}</div><div class="sub">${esc(c.indirizzo||'')}${c.km?' · '+fmtN(c.km)+' km':''} · ${n.length} interventi</div></div>`}).join('');
+}
+function formCliente(cid){
+ const c=cid?D.clienti.find(x=>x.id===cid):{id:nuovoId(),nome:'',tel:'',email:'',indirizzo:'',km:0,giardino:'',note:''};
+ cBozza={...c};
+ const st=D.interventi.filter(i=>i.clienteId===c.id).sort((a,b)=>(b.data||'').localeCompare(a.data||'')).slice(0,10);
+ apri(`<h2>${cid?'Scheda cliente':'Nuovo cliente'}</h2>
+ ${cid?`<div style="display:flex;gap:6px;flex-wrap:wrap">${c.tel?`<a class="btn sec pic" href="tel:${esc(c.tel)}">📞 Chiama</a>`:''}${c.indirizzo?`<a class="btn sec pic" target="_blank" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(c.indirizzo)}">🗺️ Naviga</a>`:''}<button class="btn sec pic" onclick="formIntervento(null,'${c.id}')">+ Intervento</button></div>`:''}
+ <label>Nome / ragione sociale</label><input id="cNome" value="${esc(c.nome)}">
+ <div class="griglia"><div><label>Telefono</label><input id="cTel" type="tel" value="${esc(c.tel)}"></div><div><label>Email</label><input id="cEmail" type="email" value="${esc(c.email)}"></div></div>
+ <label>Indirizzo del giardino</label><input id="cInd" value="${esc(c.indirizzo)}">
+ <label>Distanza dalla sede (km, solo andata)</label><input id="cKm" type="number" inputmode="decimal" value="${c.km}">
+ <label>Il giardino (mq, prato, siepi, piante, irrigazione…)</label><textarea id="cGiard" rows="3">${esc(c.giardino)}</textarea>
+ <label>Note (cancello, chiavi, cane, orari…)</label><textarea id="cNote" rows="2">${esc(c.note)}</textarea>
+ ${st.length?'<h2>Ultimi interventi</h2>'+st.map(i=>`<div class="riga sub" style="padding:4px 0"><span>${fmtData(i.data)} · ${esc(i.tipo)}</span><span>${eur(calcola(i).totale)}</span></div>`).join(''):''}
+ <div class="azioni"><button class="btn" onclick="salvaCliente()">Salva</button><button class="btn sec" onclick="chiudi()">Annulla</button>${cid?'<button class="btn rosso" onclick="eliminaCliente()">Elimina</button>':''}</div>`);
+}
+function salvaCliente(){
+ const g=x=>document.getElementById(x).value.trim();
+ if(!g('cNome')){alert('Inserisci il nome');return}
+ Object.assign(cBozza,{nome:g('cNome'),tel:g('cTel'),email:g('cEmail'),indirizzo:g('cInd'),km:num(g('cKm')),giardino:g('cGiard'),note:g('cNote')});
+ scrivi('clienti',cBozza);chiudi();
+}
+function eliminaCliente(){if(!confirm('Eliminare il cliente? I suoi interventi restano nei conti.'))return;cancella('clienti',cBozza.id);chiudi()}
+
+/* ---------- MAGAZZINO ---------- */
+function vMagazzino(){
+ if(!D.materiali.length)return '<div class="vuoto">Magazzino vuoto.<br>Tocca + per aggiungere concimi, sementi, carburante…</div>';
+ const val=D.materiali.reduce((s,m)=>s+Math.max(0,num(m.qta))*num(m.costo),0);
+ return `<div class="card riga"><span>Valore magazzino</span><b>${eur(val)}</b></div>`+D.materiali.slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||'')).map(m=>{const basso=num(m.soglia)>0&&num(m.qta)<=num(m.soglia);
+ return `<div class="card" onclick="formMateriale('${m.id}')"><div class="riga"><b>${esc(m.nome)}</b><span class="${basso?'neg':''}">${fmtN(m.qta)} ${esc(m.unita)}</span></div><div class="riga sub"><span>${eur(m.costo)} / ${esc(m.unita)}</span>${basso?'<span class="badge rosso">Da riordinare</span>':''}</div></div>`}).join('');
+}
+function formMateriale(mid){
+ const m=mid?D.materiali.find(x=>x.id===mid):{id:nuovoId(),nome:'',unita:'kg',costo:0,qta:0,soglia:0};
+ mBozza={...m};
+ apri(`<h2>${mid?'Modifica':'Nuovo'} materiale</h2>
+ <label>Nome</label><input id="mNome" value="${esc(m.nome)}" placeholder="es. Concime NPK granulare">
+ <div class="griglia"><div><label>Unità</label><input id="mUn" list="unita" value="${esc(m.unita)}"><datalist id="unita">${['kg','l','pz','sacco','m','m²','conf.'].map(u=>`<option value="${u}">`).join('')}</datalist></div>
+ <div><label>Costo per unità (€)</label><input id="mCosto" type="number" inputmode="decimal" step="0.01" value="${m.costo}"></div>
+ <div><label>Quantità attuale</label><input id="mQta" type="number" inputmode="decimal" value="${m.qta}"></div>
+ <div><label>Avvisami sotto</label><input id="mSoglia" type="number" inputmode="decimal" value="${m.soglia}"></div></div>
+ <label>➕ Carico acquisto (si somma alla quantità)</label><input id="mCarico" type="number" inputmode="decimal" placeholder="0">
+ <div class="azioni"><button class="btn" onclick="salvaMateriale()">Salva</button><button class="btn sec" onclick="chiudi()">Annulla</button>${mid?'<button class="btn rosso" onclick="eliminaMateriale()">Elimina</button>':''}</div>`);
+}
+function salvaMateriale(){
+ const g=x=>document.getElementById(x).value.trim();
+ if(!g('mNome')){alert('Inserisci il nome');return}
+ Object.assign(mBozza,{nome:g('mNome'),unita:g('mUn')||'pz',costo:num(g('mCosto')),qta:num(g('mQta'))+num(g('mCarico')),soglia:num(g('mSoglia'))});
+ scrivi('materiali',mBozza);chiudi();
+}
+function eliminaMateriale(){if(!confirm('Eliminare il materiale?'))return;cancella('materiali',mBozza.id);chiudi()}
+
+/* ---------- CONTI ---------- */
+function vConti(){
+ const L=D.interventi.filter(i=>i.stato==='completato'&&(i.data||'').startsWith(mese));
+ const S={imp:0,iva:0,tot:0,mat:0,trasf:0,manod:0,marg:0,inc:0,da:0,km:0,ore:0},G={};
+ L.forEach(i=>{const k=calcola(i);S.imp+=k.imponibile;S.iva+=k.iva;S.tot+=k.totale;S.mat+=k.costoMat;S.trasf+=k.trasf;S.manod+=k.manod;S.marg+=k.margine;S.km+=num(i.km);S.ore+=num(i.ore);if(i.pagato)S.inc+=k.totale;else S.da+=k.totale;
+  const t=i.tipo||'Altro';G[t]=G[t]||{n:0,imp:0,m:0};G[t].n++;G[t].imp+=k.imponibile;G[t].m+=k.margine});
+ const daTot=D.interventi.filter(i=>i.stato==='completato'&&!i.pagato).reduce((s,i)=>s+calcola(i).totale,0);
+ const r=(t,v,cl='')=>`<div class="riga ${cl}" style="padding:4px 0"><span>${t}</span><span>${v}</span></div>`;
+ const tipi=Object.entries(G).sort((a,b)=>b[1].imp-a[1].imp).map(([t,g])=>r(`${esc(t)} (${g.n})`,`${eur(g.imp)} · marg. ${eur(g.m)}`)).join('')||'<div class="sub">Nessun lavoro completato in questo mese.</div>';
+ return `<input type="month" value="${mese}" onchange="mese=this.value;render()" style="margin-bottom:10px">
+ <div class="card"><h2 style="margin-top:0">Lavori completati: ${L.length}</h2>${r('Ore lavorate',fmtN(S.ore))}${r('Km percorsi',fmtN(S.km))}</div>
+ <div class="card"><h2 style="margin-top:0">Fatturato</h2>${r('Imponibile',eur(S.imp))}${r('IVA a debito',eur(S.iva))}${r('Totale fatturato',eur(S.tot),'tot')}</div>
+ <div class="card"><h2 style="margin-top:0">Costi e margine</h2>${r('Materiali',eur(S.mat))}${r('Trasferte',eur(S.trasf))}${S.manod?r('Manodopera',eur(S.manod)):''}${r('Margine netto',eur(S.marg)+(S.imp?` (${(S.marg/S.imp*100).toFixed(1)}%)`:''),'tot'+(S.marg<0?' neg':''))}<div class="sub">Prima di tasse, contributi e spese fisse.</div></div>
+ <div class="card"><h2 style="margin-top:0">Incassi</h2>${r('Incassato (lavori del mese)',eur(S.inc))}${r('Da incassare (mese)',eur(S.da),S.da?'neg':'')}${r('Da incassare (in totale)',eur(daTot),'tot')}</div>
+ <div class="card"><h2 style="margin-top:0">Per tipo di lavoro</h2>${tipi}</div>`;
+}
+
+/* ---------- IMPOSTAZIONI E BACKUP ---------- */
+function apriImpostazioni(){
+ const p=D.imp,vecchi=localStorage.getItem(KEY);
+ apri(`<h2>Impostazioni</h2>
+ <label>Nome attività</label><input id="sAz" value="${esc(p.azienda)}">
+ <div class="griglia"><div><label>Costo per km (€)</label><input id="sKm" type="number" inputmode="decimal" step="0.01" value="${p.costoKm}"></div>
+ <div><label>Tariffa oraria cliente (€)</label><input id="sTar" type="number" inputmode="decimal" value="${p.tariffa}"></div>
+ <div><label>Costo orario interno (€)</label><input id="sOra" type="number" inputmode="decimal" value="${p.costoOra}"></div>
+ <div><label>Margine obiettivo (%)</label><input id="sMar" type="number" inputmode="decimal" value="${p.margine}"></div>
+ <div><label>IVA predefinita (%)</label><select id="sIva">${['22','10','4','0'].map(v=>`<option ${String(p.iva)===v?'selected':''}>${v}</option>`).join('')}</select></div></div>
+ <div class="sub" style="margin-top:6px">Costo per km: carburante, usura e assicurazione del mezzo. Costo orario interno: lascialo a 0 se lavori da solo; mettilo se paghi un aiutante.</div>
+ <div class="azioni"><button class="btn" onclick="salvaImp()">Salva</button><button class="btn sec" onclick="chiudi()">Chiudi</button></div>
+ ${vecchi?`<h2>Dati della versione precedente</h2><div class="sub">Su questo telefono ci sono dati salvati con la versione senza sincronizzazione.</div><div class="azioni"><button class="btn" onclick="migra()">☁️ Caricali nel cloud</button></div>`:''}
+ <h2>Backup</h2>
+ <div class="azioni"><button class="btn sec" onclick="esporta()">⬇️ Esporta</button><label class="btn sec" style="margin:0;color:var(--verde);font-size:15px">⬆️ Importa<input type="file" accept=".json,application/json" style="display:none" onchange="importa(this.files[0])"></label></div>
+ <h2>Account</h2><div class="sub">Collegato come ${esc(utente&&utente.email)}</div>
+ <div class="azioni"><button class="btn rosso" onclick="if(confirm('Uscire dall\\'account?')){chiudi();FB.signOut(FB.auth)}">Esci</button></div>`);
+}
+function salvaImp(){
+ const g=x=>document.getElementById(x).value;
+ const imp={...D.imp,azienda:g('sAz').trim(),costoKm:num(g('sKm')),tariffa:num(g('sTar')),costoOra:num(g('sOra')),margine:num(g('sMar')),iva:num(g('sIva'))};
+ FB.setDoc(ref('config','impostazioni'),imp).catch(err);chiudi();
+}
+function caricaDati(d){
+ const ops=[];
+ ['clienti','interventi','materiali'].forEach(c=>(d[c]||[]).forEach(o=>{if(o&&o.id)ops.push([ref(c,o.id),pulisci(o)])}));
+ if(d.imp)ops.push([ref('config','impostazioni'),{...IMP_DEF,...d.imp}]);
+ for(let k=0;k<ops.length;k+=400){const b=FB.writeBatch(FB.db);ops.slice(k,k+400).forEach(([r,x])=>b.set(r,x));b.commit().catch(err)}
+ return ops.length;
+}
+function migra(){
+ try{const d=JSON.parse(localStorage.getItem(KEY));const n=caricaDati(d);localStorage.setItem(KEY+'.copia',localStorage.getItem(KEY));localStorage.removeItem(KEY);chiudi();alert(`Caricati ${n} elementi nel cloud.`)}
+ catch(e){alert('Non sono riuscito a leggere i vecchi dati.')}
+}
+function esporta(){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(D)],{type:'application/json'}));a.download='backup-giardino-'+oggi()+'.json';document.body.appendChild(a);a.click();a.remove()}
+function importa(f){if(!f)return;const rd=new FileReader();rd.onload=()=>{try{const d=JSON.parse(rd.result);if(!d.clienti||!d.interventi)throw 0;if(!confirm('Caricare il backup nel cloud? Gli elementi già presenti con lo stesso codice verranno sovrascritti.'))return;const n=caricaDati(d);chiudi();alert(`Caricati ${n} elementi.`)}catch(e){alert('File non valido')}};rd.readAsText(f)}
+
+if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();
+if('serviceWorker' in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js');
+</script>
+
+<script type="module">
+// ===== INCOLLA QUI I VALORI DI firebaseConfig PRESI DALLA CONSOLE FIREBASE =====
+const firebaseConfig = {
+  apiKey: "",
+  authDomain: "",
+  projectId: "",
+  storageBucket: "",
+  messagingSenderId: "",
+  appId: ""
+};
+// ==============================================================================
+const U='https://www.gstatic.com/firebasejs/12.15.0/';
+if(!firebaseConfig.apiKey){
+  document.getElementById('main').innerHTML='<div class="vuoto">Manca la configurazione di Firebase nel file index.html.</div>';
+}else{
+  try{
+    const [A,Au,F]=await Promise.all(['app','auth','firestore'].map(n=>import(U+'firebase-'+n+'.js')));
+    const app=A.initializeApp(firebaseConfig);
+    const db=F.initializeFirestore(app,{localCache:F.persistentLocalCache({tabManager:F.persistentMultipleTabManager()})});
+    window.FB={...Au,...F,auth:Au.getAuth(app),db};
+    window.avvia();
+  }catch(e){
+    console.error(e);
+    document.getElementById('main').innerHTML='<div class="vuoto">Impossibile avviare l\'app. Controlla la connessione e riaprila.</div>';
+  }
+}
+</script>
+</body>
+</html>
